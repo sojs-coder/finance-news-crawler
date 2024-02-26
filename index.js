@@ -1,6 +1,56 @@
-import axios from "axios";
-import config from "./config.json" assert { type: "json" };
-import { SentimentIntensityAnalyzer } from "vader-sentiment";
+require("dotenv").config();
+const axios = require("axios");
+const config = require("./config.json");
+const { SentimentIntensityAnalyzer } = require("vader-sentiment")
+const AWS = require("aws-sdk");
+AWS.config.update({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+});
+
+const bedrockClient = new AWS.BedrockRuntime({ region: "us-east-1" });
+
+
+
+function ask(promptText) {
+  const modelId = "cohere.command-text-v14"; // Model ID for LLaMA 13B Chat
+
+  const payload = JSON.stringify({
+    prompt: promptText,
+    temperature: 0.5, // Adjust for creativity
+    p: 0.9, // Adjust for coherence,
+    max_tokens: 10,
+    stop_sequences: ["Headline: ", "Bot: "]
+  });
+  /*
+  {
+    "prompt": string,
+    "temperature": float,
+    "p": float,
+    "k": float,
+    "max_tokens": int,
+    "stop_sequences": [string],
+    "return_likelihoods": "GENERATION|ALL|NONE",
+    "stream": boolean,
+    "num_generations": int,
+    "logit_bias": {token_id: bias},
+    "truncate": "NONE|START|END"
+}*/
+
+  return bedrockClient.invokeModel({
+    modelId,
+    "contentType": "application/json",
+    "accept": "application/json",
+    "body": payload
+  })
+    .promise()
+    .then((response) => {
+      var { body } = response;
+      body = JSON.parse(body.toString());
+      return body.generations[0].text;
+    })
+    .catch((error) => console.error("Error invoking model:", error));
+}
 
 const getTopHeadlines = async () => {
   try {
@@ -9,11 +59,11 @@ const getTopHeadlines = async () => {
         apiKey: config.NEWS_API_KEY,
         category: "business",
         language: "en",
-        pageSize: 100,
+        pageSize: 40,
       },
     });
 
-    return response.data.articles;
+    return response.data.articles.slice(20);
   } catch (error) {
     console.error("Error fetching top headlines:", error.message);
     return [];
@@ -21,150 +71,70 @@ const getTopHeadlines = async () => {
 };
 
 const analyzeSentiment = async (articleTitle) => {
-  let result = "";
-  const prompt = `Act as best trader in the world and analyze the following article title: "${articleTitle}". Is the sentiment of the article neutral, bullish, or bearish? After that, specify if the article is related to cryptocurrency, forex, or stocks. You need to determine which market the article is primarily related to. Do not state that the article has no relationship to any of these markets. Write in lowercase.`;
+  const prompt = `The following is a report from a robot that analyzes news headlines for tickers and sentiment (one of "bearish", "bullish", or "neutral").
+If no stock ticker can be derived from the headline, the bot uses "---, ---".
 
-  try {
-    const response = await axios.post(
-      "https://api.openai.com/v1/completions",
-      {
-        prompt: prompt.trim(),
-        model: "text-davinci-003",
-        max_tokens: 250,
-        temperature: 0.7,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${config.OPENAI_API_KEY}`,
-        },
-      }
-    );
+Headline: Why is everyone talking about rivian stock?
+Bot: RIVN, bullish, people talk about rivian
 
-    result = response.data.choices[0].text;
-  } catch (error) {
-    console.error("Error analyzing sentiment:", error.message);
-    return "";
-  }
+Headline: JSW Energy, Godrej Properties among top 4 trading ideas which could give 11-21% in 3-4 weeks: Rajesh Palvi
+Bot: JSWENERGY, bullish, JSW energy top 4 trading idea
 
-  if (config.SENTIMENT_ANALYSIS_ALGORITHM === "vader") {
-    let vaderResult = SentimentIntensityAnalyzer.polarity_scores(articleTitle);
+Headline: Berkshire Hathaway Stock Rally Could Stall After Earnings Report
+Bot: BRK.A, bullish, Berkshire hathaway stock expected to rally
 
-    // Sort object by value descending
-    vaderResult = Object.fromEntries(
-      Object.entries(vaderResult).sort(([, a], [, b]) => b - a)
-    );
-    
-    const highestSentiment = Object.keys(vaderResult)[0];
-    switch (highestSentiment) {
-      case "pos":
-        vaderResult = "bullish";
-        break;
-      case "neg":
-        vaderResult = "bearish";
-        break;
-      default:
-        vaderResult = "neutral";
-        break;
-    }
+Headline: VinFast breaks ground on its first EV manufacturing unit in India
+Bot: VFS, bullish, VinFast pushing production nationwide
 
-    // Replace neutral, bullish or bearish in chatgpt response with vader sentiment
-    if (result.match(/neutral|bullish|bearish/g)?.length > 0) {
-      result = result.replace("bullish", vaderResult);
-    }
+Headline: Stocks to Buy: 6 Stocks that can deliver returns of up to 65%
+Bot: ---, ---, The stocks are unknown
 
-    return result;
-  }
-};
+Headline: Top Wall Street analysts pick these dividend stocks for enhanced returns
+Bot: ---, ---, The stocks are unkown
 
-const incrementSentiment = (report, market, sentiment) => {
-  report[market][sentiment]++;
-};
+Headline: Inside a clean energy titan's fight to kill a climate project
+Bot: ---, ---, The stock is unkown
 
-const printReport = (report) => {
-  console.log("Sentiment Report:");
-  console.log("Stocks:");
-  console.log(`Bullish: ${report.stocks.bullish}`);
-  console.log(`Bearish: ${report.stocks.bearish}`);
-  console.log(`Neutral: ${report.stocks.neutral}`);
-  console.log("Forex:");
-  console.log(`Bullish: ${report.forex.bullish}`);
-  console.log(`Bearish: ${report.forex.bearish}`);
-  console.log(`Neutral: ${report.forex.neutral}`);
-  console.log("Cryptocurrency:");
-  console.log(`Bullish: ${report.cryptocurrency.bullish}`);
-  console.log(`Bearish: ${report.cryptocurrency.bearish}`);
-  console.log(`Neutral: ${report.cryptocurrency.neutral}`);
+Headline: Rivian stock expected to fall amid shortages
+Bot: RIVN, bearish, Rivian stock expected to fall
+
+Headline: ${articleTitle}
+Bot: `
+  const response = await ask(prompt);
+
+  const ticker = response.split(", ")[0];
+  const sent = response.split(", ")[1];
+
+  return [ticker, sent]
 };
 
 const crawlFinanceNews = async () => {
+  const scores = {
+  }
   try {
     const articles = await getTopHeadlines();
-    const report = {
-      stocks: {
-        bullish: 0,
-        bearish: 0,
-        neutral: 0,
-      },
-      forex: {
-        bullish: 0,
-        bearish: 0,
-        neutral: 0,
-      },
-      cryptocurrency: {
-        bullish: 0,
-        bearish: 0,
-        neutral: 0,
-      },
-    };
 
     for (const article of articles) {
       const articleTitle = article.title;
-      const sentiment = await analyzeSentiment(articleTitle);
-
-      if (sentiment.includes("bullish")) {
-        if (sentiment.includes("crypto")) {
-          console.log("Bullish article related to crypto:", articleTitle);
-          incrementSentiment(report, "cryptocurrency", "bullish");
-        } else if (sentiment.includes("stock")) {
-          console.log("Bullish article related to stocks:", articleTitle);
-          incrementSentiment(report, "stocks", "bullish");
-        } else if (sentiment.includes("forex")) {
-          console.log("Bullish article related to forex:", articleTitle);
-          incrementSentiment(report, "forex", "bullish");
+      var [ticker, sent] = await analyzeSentiment(articleTitle);
+      if (ticker !== "---" && sent !== "---") {
+        if (!scores[ticker]) {
+          scores[ticker] = {
+            bearish: 0,
+            bullish: 0,
+            neutral: 0
+          }
         }
-      } else if (sentiment.includes("bearish")) {
-        if (sentiment.includes("crypto")) {
-          console.log("Bearish article related to crypto:", articleTitle);
-          incrementSentiment(report, "cryptocurrency", "bearish");
-        } else if (sentiment.includes("stock")) {
-          console.log("Bearish article related to stocks:", articleTitle);
-          incrementSentiment(report, "stocks", "bearish");
-        } else if (sentiment.includes("forex")) {
-          console.log("Bearish article related to forex:", articleTitle);
-          incrementSentiment(report, "forex", "bearish");
-        }
-      } else if (sentiment.includes("neutral")) {
-        if (sentiment.includes("crypto")) {
-          console.log("Neutral article related to crypto:", articleTitle);
-          incrementSentiment(report, "cryptocurrency", "neutral");
-        } else if (sentiment.includes("stock")) {
-          console.log("Neutral article related to stocks:", articleTitle);
-          incrementSentiment(report, "stocks", "neutral");
-        } else if (sentiment.includes("forex")) {
-          console.log("Neutral article related to forex:", articleTitle);
-          incrementSentiment(report, "forex", "neutral");
-        }
+        scores[ticker][sent]++;
       }
+      console.log(ticker + " | " + sent + " | " + articleTitle)
     }
-
-    return report
+    console.log(scores)
   } catch (error) {
     console.error("Error crawling finance news:", error.message);
   }
 };
 
 (async () => {
-  const report = await crawlFinanceNews();
-  if (report) printReport(report);
+  await crawlFinanceNews();
 })()

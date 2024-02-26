@@ -3,7 +3,7 @@
     "xo.enable": true,
     "xo.format.enable": true,
     "[javascript]": {
-        "editor.defaultFormatter": "samverschueren.linter-xo"
+        "editor.defaultFormatter": "vscode.typescript-language-features"
     },
     "[typescript]": {
         "editor.defaultFormatter": "samverschueren.linter-xo"
