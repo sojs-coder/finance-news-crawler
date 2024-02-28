@@ -1,0 +1,13 @@
+{"prompt": "Why is everyone talking about rivian stock?", "completion":"[STOCK] RIVN [SENTIMENT] bullish [REASON] Attention to RIVN"},
+{"prompt": "JSW Energy, Godrej Properties among top 4 trading ideas which could give 11-21% in 3-4 weeks: Rajesh Palvi", "completion":"[STOCK] --- [SENTIMENT] --- [REASON] Not on NYSE or NASDAQ"},
+{"prompt": "Berkshire Hathaway Stock Rally Could Stall After Earnings Report", "completion":"[STOCK] BRK.A, BRK.B [SENTIMENT] bearish [REASON] Earnings report"},
+{"prompt": "VinFast breaks ground on its first EV manufacturing unit in India", "completion":"[STOCK] VFS [SENTIMENT] bullish [REASON] VinFast pushing into India"},
+{"prompt": "Stocks to Buy: 6 Stocks that can deliver returns of up to 65%", "completion":"[STOCK] --- [SENTIMENT] --- [REASON] No stocks mentioned"},
+{"prompt": "Top Wall Street analysts pick these dividend stocks for enhanced returns", "completion":"[STOCK] --- [SENTIMENT] --- [REASON] No stocks mentioned"},
+{"prompt": "Inside a clean energy titan's fight to kill a climate project", "completion":"[STOCK] --- [SENTIMENT] --- [REASON] No stocks mentioned"},
+{"prompt": "Warren Buffett: Berkshire’s boom days may be over as his company approaches $1 trillion in value", "completion":"[STOCK] BRK.A, BRK.B [SENTIMENT] bearish [REASON] Berkshire's boom days may be over"},
+{"prompt": "KKR to acquire VMware’s end user computing biz from Broadcom for $4B - TechCrunch"," completion":"[STOCK] KKR [SENTIMENT] bullish [REASON] KKR to acquire VMware from Broadcom"},
+{"prompt": "BYD launches $233K Yangwang U9 EV supercar aimed at Ferrari", "completion":"[STOCK] --- [SENTIMENT] --- [REASON] Not on NYSE or NASDAQ"},
+{"prompt": "FTC sues to block Kroger, Albertsons merger, arguing deal would raise grocery prices and hurt workers", "completion":"[STOCK] KR, ACI [SENTIMENT] bearish [REASON] FTC sues to block Kroger, Albertsons merger"},
+{"prompt": "How investors should prepare for PCE data, AI bubble woes", "completion":"[STOCK] --- [SENTIMENT] --- [REASON] No stocks mentioned"},
+{"prompt": "Family Dollar pleads guilty to holding consumer products in 'rodent-infested warehouse'", "completion":"[STOCK] FDO [SENTIMENT] bearish [REASON] Family dollar has rodent infested warehouse"}

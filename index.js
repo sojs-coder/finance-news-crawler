@@ -1,7 +1,57 @@
 require("dotenv").config();
 const axios = require("axios");
-const config = require("./config.json");
-const { SentimentIntensityAnalyzer } = require("vader-sentiment")
+const sqlite3 = require("sqlite3").verbose();
+const quote = require('stock-quote');
+
+const inv = "investments";
+const moves = "moves";
+const db = new sqlite3.Database("finance.db");
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS ${inv} (
+    ticker TEXT PRIMARY KEY,
+    currency TEXT,
+    shares INTEGER,
+    basis REAL,
+    date TEXT
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS ${moves} (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT,
+    shares INTEGER,
+    price REAL,
+    date TEXT
+  )`);
+});
+async function buyMove(ticker) {
+  const res = await axios.get("https://api.polygon.io/v2/aggs/ticker/" + ticker + "/prev?adjusted=true&apiKey=" + process.env.POLYGON_API_KEY)
+  const { data } = res;
+  const currentPrice = data.results[0].c;
+  var date = new Date().toISOString();
+  db.run(`INSERT INTO ${moves} (ticker, shares, price, date) VALUES (?, ?, ?, ?)`, [ticker, 1, currentPrice, date]);
+  db.get(`SELECT * FROM ${inv} WHERE ticker = ?`, [ticker], (err, row) => {
+    if (row) {
+      var newBasis = (row.basis * row.shares + currentPrice) / (row.shares + 1);
+      db.run(`UPDATE ${inv} SET shares = shares + 1, basis = ? WHERE ticker = ?`, [newBasis, ticker]);
+    } else {
+      db.run(`INSERT INTO ${inv} (ticker, currency, shares, basis, date) VALUES (?, ?, ?, ?, ?)`, [ticker, data.currency, 1, currentPrice, date]);
+    }
+  });
+}
+async function sellMove(ticker) {
+  const res = await axios.get("https://api.polygon.io/v2/aggs/ticker/" + ticker + "/prev?adjusted=true&apiKey=" + process.env.POLYGON_API_KEY)
+  const { data } = res;
+  const currentPrice = data.results[0].c;
+  var date = new Date().toISOString();
+  db.run(`INSERT INTO ${moves} (ticker, shares, price, date) VALUES (?, ?, ?, ?)`, [ticker, -1, currentPrice, date]);
+  db.get(`SELECT * FROM ${inv} WHERE ticker = ?`, [ticker], (err, row) => {
+    if (row) {
+      if (row.shares >= 1) {
+        var newBasis = (row.basis * row.shares - currentPrice) / (row.shares - 1);
+        db.run(`UPDATE ${inv} SET shares = shares - 1, basis = ? WHERE ticker = ?`, [newBasis, ticker]);
+      }
+    }
+  });
+}
 const AWS = require("aws-sdk");
 AWS.config.update({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -9,8 +59,6 @@ AWS.config.update({
 });
 
 const bedrockClient = new AWS.BedrockRuntime({ region: "us-east-1" });
-
-
 
 function ask(promptText) {
   const modelId = "cohere.command-text-v14"; // Model ID for LLaMA 13B Chat
@@ -22,20 +70,6 @@ function ask(promptText) {
     max_tokens: 10,
     stop_sequences: ["Headline: ", "Bot: "]
   });
-  /*
-  {
-    "prompt": string,
-    "temperature": float,
-    "p": float,
-    "k": float,
-    "max_tokens": int,
-    "stop_sequences": [string],
-    "return_likelihoods": "GENERATION|ALL|NONE",
-    "stream": boolean,
-    "num_generations": int,
-    "logit_bias": {token_id: bias},
-    "truncate": "NONE|START|END"
-}*/
 
   return bedrockClient.invokeModel({
     modelId,
@@ -56,14 +90,14 @@ const getTopHeadlines = async () => {
   try {
     const response = await axios.get("https://newsapi.org/v2/top-headlines", {
       params: {
-        apiKey: config.NEWS_API_KEY,
+        apiKey: process.env.NEWS_API_KEY,
         category: "business",
         language: "en",
-        pageSize: 40,
+        pageSize: 100,
       },
     });
 
-    return response.data.articles.slice(20);
+    return response.data.articles;
   } catch (error) {
     console.error("Error fetching top headlines:", error.message);
     return [];
@@ -102,13 +136,14 @@ Headline: ${articleTitle}
 Bot: `
   const response = await ask(prompt);
 
-  const ticker = response.split(", ")[0];
-  const sent = response.split(", ")[1];
+  const ticker = (response.split(", ")[0] || "---").toUpperCase();
+  const sent = (response.split(", ")[1] || "---").toLowerCase();
 
   return [ticker, sent]
 };
-
 const crawlFinanceNews = async () => {
+  const buys = [];
+  const sells = [];
   const scores = {
   }
   try {
@@ -129,7 +164,40 @@ const crawlFinanceNews = async () => {
       }
       console.log(ticker + " | " + sent + " | " + articleTitle)
     }
-    console.log(scores)
+    Object.keys(scores).forEach((ticker) => {
+      var { bearish, bullish, neutral } = scores[ticker];
+      if (bullish > bearish && bullish > neutral) {
+        console.log("Bullish: " + ticker);
+        buys.push(ticker);
+      } else if (bearish > bullish && bearish > neutral) {
+        console.log("Bearish: " + ticker);
+        sells.push(ticker);
+      }
+    });
+
+    console.log("Buys: ", buys);
+    console.log("Sells: ", sells);
+    console.log("Initiating moves");
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    // sleep 20 seconds in between each move
+    for (const ticker of buys) {
+      console.log("MOVE - BUY: " + ticker);
+      try {
+        await buyMove(ticker);
+      } catch (err) {
+        console.log("Error buying: " + ticker + " - " + err.message);
+      }
+      await sleep(20000);
+    }
+    for (const ticker of sells) {
+      console.log("MOVE - SELL: " + ticker);
+      try {
+        await sellMove(ticker);
+      } catch (err) {
+        console.log("Error selling: " + ticker + " - " + err.message);
+      }
+      await sleep(20000);
+    }
   } catch (error) {
     console.error("Error crawling finance news:", error.message);
   }
